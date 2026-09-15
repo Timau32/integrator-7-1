@@ -1,36 +1,133 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Интегратор 7/1 — Паспорт объекта
 
-## Getting Started
+Интерфейс платформы управления ремонтом: реестр объектов (квартиры, комнаты,
+студии), паспорт объекта с тремя вкладками, этапы работ с жёсткой машиной
+статусов и смета с комиссией платформы **7%**.
 
-First, run the development server:
+## Стек
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+| Слой | Технологии |
+| --- | --- |
+| Фреймворк | Next.js 16 (App Router), React 19, TypeScript (strict) |
+| Стили | Tailwind CSS v4, shadcn/ui (Radix UI), lucide-react |
+| Состояние | `useReducer` + чистый доменный слой без внешних библиотек |
+| Тесты | Vitest + Testing Library (юнит и компонентные), Playwright (E2E) |
+| Инфраструктура | Docker (standalone-сборка), GitHub Actions, Vercel |
+
+## Машина статусов этапа
+
+Единственный источник правды — `lib/domain/status.ts`. Модалка смены статуса,
+редьюсер и тесты читают один и тот же граф, поэтому запрещённый переход
+невозможно ни кликнуть, ни выполнить программно.
+
+| Из | Разрешено в | Запрещено |
+| --- | --- | --- |
+| `pending` (Не начат) | `in_progress` | `completed`, `blocked`, `pending` |
+| `in_progress` (В работе) | `completed`, `blocked` | `pending`, `in_progress` |
+| `completed` (Завершён) | `in_progress` | `blocked`, `pending`, `completed` |
+| `blocked` (Заблокирован) | `in_progress` | `completed`, `pending`, `blocked` |
+
+Переход в тот же статус запрещён для всех статусов.
+
+Помимо самой смены статуса доменный слой:
+
+- проставляет фактическое начало при первом переходе в `in_progress`
+  и фактическое окончание при `completed`;
+- снимает фактическое окончание и причину блокировки при возврате в работу;
+- требует обязательный комментарий при переводе в `blocked` и сохраняет его
+  как причину блокировки;
+- пишет журнал переходов (кто, когда, с комментарием) — он виден на карточке
+  этапа.
+
+## Смета
+
+`lib/domain/estimate.ts` считает смету в копейках-безопасной арифметике:
+каждая строка округляется до копеек до суммирования, поэтому итог всегда равен
+сумме видимых пользователю строк.
+
+```
+итого = стоимость работ + стоимость работ × 7%
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Структура
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+app/
+  objects/               реестр объектов
+  objects/[id]/          паспорт объекта (SSG по generateStaticParams)
+components/
+  passport/              вкладки, карточки этапов, модалка, формы
+  ui/                    примитивы shadcn/ui
+lib/
+  domain/                типы, машина статусов, смета, редьюсер + тесты
+  data/                  демо-данные (заменяются ответом API без правок UI)
+  format.ts              деньги, даты, склонения
+e2e/                     Playwright-сценарии
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Доменный слой не знает про React, а UI не содержит бизнес-правил — правила
+переходов меняются в одном файле.
 
-## Learn More
+## Запуск
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+npm run dev          # http://localhost:3000
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Прод-режим:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run build
+npm run start
+```
 
-## Deploy on Vercel
+## Docker
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+docker compose up --build        # http://localhost:3000
+# либо напрямую
+docker build -t integrator-7-1 .
+docker run --rm -p 3000:3000 integrator-7-1
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Образ собирается из `output: "standalone"` — в рантайм-слой попадает только
+минимальный сервер, статика и `public`, без dev-зависимостей.
+
+## Тесты
+
+```bash
+npm run test           # Vitest: домен + компоненты
+npm run test:coverage  # то же с покрытием
+npm run e2e            # Playwright (поднимает прод-сервер сам)
+npm run typecheck      # next typegen + tsc --noEmit
+npm run lint           # ESLint
+```
+
+Что проверяется:
+
+- **домен** — все разрешённые и запрещённые переходы, включая переход в тот же
+  статус; фактические даты, журнал, причина блокировки; арифметика сметы и
+  комиссии 7%; редьюсер и его иммутабельность;
+- **компоненты** — модалка показывает ровно разрешённые переходы и ни одного
+  запрещённого; смена статуса обновляет список; формы добавляют данные и
+  валидируют ввод; итог сметы пересчитывается;
+- **E2E** — сценарии в реальном браузере: открытие паспорта, переключение
+  вкладок, полный цикл этапа, блокировка с причиной, добавление этапа и позиции.
+
+## CI/CD
+
+`.github/workflows/ci.yml` на каждый push и PR:
+
+1. `quality` — типы, линт, юнит- и компонентные тесты с отчётом о покрытии;
+2. `e2e` — прод-сборка и Playwright в Chromium с HTML-отчётом;
+3. `docker` — сборка образа и smoke-проверка поднятого контейнера.
+
+Деплой — Vercel: проект подхватывает репозиторий и собирает `next build` сам,
+отдельный CD-пайплайн не нужен.
+
+## Демо-данные
+
+Состояние живёт на клиенте: серверный компонент отдаёт начальный снимок из
+`lib/data/objects.ts`, дальше изменения применяет доменный редьюсер. Обновление
+страницы возвращает исходные данные — бэкенда в этом стенде нет.

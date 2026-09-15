@@ -1,0 +1,12 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: integrator-7-1:local
+    container_name: integrator-7-1
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
