@@ -43,7 +43,7 @@ export function StageStatusDialog({
 }: StageStatusDialogProps) {
   return (
     <Dialog open={stage !== null} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl" aria-describedby={undefined}>
+      <DialogContent className="sm:max-w-xl">
         {stage && (
           /** Ключ по этапу сбрасывает черновик комментария при смене этапа. */
           <TransitionPicker

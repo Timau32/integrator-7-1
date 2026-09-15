@@ -32,5 +32,6 @@ export default async function ObjectPassportPage(
 
   if (!passport) notFound();
 
-  return <ObjectPassportView passport={passport} />;
+  /** Ключ по объекту гарантирует свежее состояние при переходе между паспортами. */
+  return <ObjectPassportView key={passport.id} passport={passport} />;
 }

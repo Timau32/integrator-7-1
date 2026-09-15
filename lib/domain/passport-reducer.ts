@@ -72,8 +72,9 @@ export function passportReducer(
       };
 
     default: {
-      const exhaustive: never = action;
-      return exhaustive;
+      /** Проверка исчерпывающей обработки: новый тип действия сломает сборку. */
+      action satisfies never;
+      return state;
     }
   }
 }
